@@ -1,0 +1,5 @@
+
+# Grok Build
+.grok/computer/
+.grok/generated-media/
+*.grok-session*
