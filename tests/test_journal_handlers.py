@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from influence_model import TrackerState
-from journal_handlers import SessionState, process_journal_entry
+from bgsinf.influence_model import TrackerState
+from bgsinf.journal_handlers import SessionState, process_journal_entry
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "journal"
 

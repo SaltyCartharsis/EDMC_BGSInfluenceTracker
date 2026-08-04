@@ -13,7 +13,7 @@ from typing import Any
 
 import requests
 
-from influence_model import TrackerState
+from .influence_model import TrackerState
 
 logger = logging.getLogger(__name__)
 

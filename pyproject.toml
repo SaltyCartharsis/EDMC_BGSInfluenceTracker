@@ -24,7 +24,7 @@ addopts = "-q"
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-src = [".", "tests"]
+src = [".", "bgsinf", "tests"]
 
 [tool.ruff.lint]
 select = [

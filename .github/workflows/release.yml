@@ -7,11 +7,13 @@
 # The zip contains only files needed to run under EDMC (no tests/tooling):
 #   EDMC_BGSInfluenceTracker/
 #     load.py
-#     influence_model.py
-#     journal_handlers.py
-#     edsm_client.py
-#     overlay_client.py
-#     discord_report.py
+#     bgsinf/          # unique package (avoids cross-plugin name collisions)
+#       __init__.py
+#       influence_model.py
+#       journal_handlers.py
+#       edsm_client.py
+#       overlay.py
+#       discord_report.py
 #
 # Install: unzip into EDMC's plugins directory, restart EDMC.
 
@@ -66,27 +68,21 @@ jobs:
           STAGE="dist/${PLUGIN_NAME}"
           ZIP_NAME="${PLUGIN_NAME}-${VERSION}.zip"
 
-          # Runtime modules only (EDMC loads load.py from the plugin folder).
-          RUNTIME_FILES=(
-            load.py
-            influence_model.py
-            journal_handlers.py
-            edsm_client.py
-            overlay_client.py
-            discord_report.py
-          )
-
+          # Runtime only: entrypoint + unique package (never top-level generic names).
           mkdir -p "${STAGE}"
-          for f in "${RUNTIME_FILES[@]}"; do
-            if [[ ! -f "${f}" ]]; then
-              echo "::error::Missing required runtime file: ${f}"
-              exit 1
-            fi
-            cp "${f}" "${STAGE}/"
-          done
+          cp load.py "${STAGE}/"
+          if [[ ! -d bgsinf ]]; then
+            echo "::error::Missing bgsinf package directory"
+            exit 1
+          fi
+          cp -a bgsinf "${STAGE}/"
+          # Drop bytecode if present
+          find "${STAGE}" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+          find "${STAGE}" -type f -name '*.py[co]' -delete 2>/dev/null || true
 
-          # Sanity: entrypoint present
           test -f "${STAGE}/load.py"
+          test -f "${STAGE}/bgsinf/__init__.py"
+          test -f "${STAGE}/bgsinf/overlay.py"
 
           mkdir -p dist
           (cd dist && zip -r "../${ZIP_NAME}" "${PLUGIN_NAME}")
@@ -121,7 +117,7 @@ jobs:
             4. Restart EDMC
 
             ### Included (runtime only)
-            `load.py`, `influence_model.py`, `journal_handlers.py`, `edsm_client.py`, `overlay_client.py`, `discord_report.py`
+            `load.py` and the `bgsinf/` package (influence model, journal handlers, EDSM client, overlay adapter, Discord report).
 
             Development files (tests, tooling, docs) are **not** included.
         env:

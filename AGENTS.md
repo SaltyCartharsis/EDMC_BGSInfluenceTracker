@@ -19,13 +19,17 @@ This is a small **EDMC plugin**, not a multi-package app. Prefer:
 
 | Module | Role | Test approach |
 |--------|------|----------------|
-| `influence_model.py` | Pure BGS math / `TrackerState` | Unit tests (highest value) |
-| `journal_handlers.py` | Pure journal → state mapping | Fixture-based unit tests |
-| `edsm_client.py` | EDSM fetch + apply | Mocked `http_get`; no live network |
-| `overlay_client.py` | Optional overlay adapter | Thin unit tests with mocks |
+| `bgsinf/influence_model.py` | Pure BGS math / `TrackerState` | Unit tests (highest value) |
+| `bgsinf/journal_handlers.py` | Pure journal → state mapping | Fixture-based unit tests |
+| `bgsinf/edsm_client.py` | EDSM fetch + apply | Mocked `http_get`; no live network |
+| `bgsinf/overlay.py` | Optional overlay adapter | Thin unit tests with mocks |
+| `bgsinf/discord_report.py` | Discord ANSI report | Unit tests |
 | `load.py` | EDMC glue, Tk UI, prefs | Host-only; thin wrappers |
 
-- Keep estimation in `influence_model.py`, journal rules in `journal_handlers.py`, EDSM in `edsm_client.py`, host/UI in `load.py`.
+- Put all pure code under the unique package **`bgsinf/`** (like BGS-Tally's `bgstally/`).
+  Never use generic top-level module names (`overlay_client`, `widgets`, `utils`) — EDMC
+  shares one import namespace across plugins and collisions disable loading.
+- Keep host/UI only in `load.py`.
 - Journal event shapes: Frontier [Journal Manual v32](https://hosting.zaonce.net/community/journal/v32/Journal_Manual-v32.pdf).
 - EDMC plugin hooks/API: [EDCD PLUGINS.md](https://github.com/EDCD/EDMarketConnector/blob/main/PLUGINS.md).
 - Dev deps (`requirements-dev.txt` / `pyproject.toml`) stay separate so the plugin folder remains drop-in for EDMC.
@@ -139,7 +143,7 @@ requirements-dev.txt
 ```bash
 ruff check .
 black --check .
-mypy influence_model.py journal_handlers.py edsm_client.py overlay_client.py discord_report.py
+mypy bgsinf
 pytest
 ```
 

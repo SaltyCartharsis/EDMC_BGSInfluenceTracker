@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from influence_model import Action, TrackerState
+from .influence_model import Action, TrackerState
 
 # Events that carry system population / minor-faction lists (manual §§4.8, 4.12, 11.1).
 SYSTEM_EVENTS = frozenset({"FSDJump", "Location", "CarrierJump"})

@@ -8,8 +8,8 @@ contents render colours in Discord desktop clients.
 
 from __future__ import annotations
 
-from influence_model import TrackerState
-from journal_handlers import SessionState
+from .influence_model import TrackerState
+from .journal_handlers import SessionState
 
 ESC = "\u001b"
 

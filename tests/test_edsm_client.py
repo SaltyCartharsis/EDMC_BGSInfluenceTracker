@@ -7,13 +7,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from edsm_client import (
+from bgsinf.edsm_client import (
     EDSM_FACTIONS_URL,
     EDSM_SYSTEM_URL,
     apply_edsm_system_data,
     fetch_edsm_system,
 )
-from influence_model import TrackerState
+from bgsinf.influence_model import TrackerState
 
 UA = "TestAgent/1.0"
 

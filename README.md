@@ -4,14 +4,15 @@ Elite Dangerous Market Connector (EDMC) plugin that estimates Background Simulat
 
 ## Layout
 
-| File | Role |
+| Path | Role |
 |------|------|
-| `load.py` | EDMC plugin entrypoint (UI, prefs) |
-| `journal_handlers.py` | Pure journal event → tracker/session mapping |
-| `edsm_client.py` | EDSM population/factions fetch + apply |
-| `influence_model.py` | Pure influence estimation engine |
-| `overlay_client.py` | Optional EDMC Overlay adapter |
-| `discord_report.py` | ANSI Discord session report builder |
+| `load.py` | EDMC plugin entrypoint (UI, prefs hooks) |
+| `bgsinf/` | Unique package (avoids colliding with other plugins) |
+| `bgsinf/journal_handlers.py` | Journal event → tracker/session mapping |
+| `bgsinf/edsm_client.py` | EDSM population/factions fetch + apply |
+| `bgsinf/influence_model.py` | Influence estimation engine |
+| `bgsinf/overlay.py` | Optional EDMC Overlay adapter |
+| `bgsinf/discord_report.py` | ANSI Discord session report builder |
 
 ### Bounty vouchers vs Powerplay payout perks
 The journal does **not** put base voucher value and Powerplay cash bonus on the same
@@ -43,7 +44,7 @@ pip install -r requirements-dev.txt
 
 ruff check .
 black --check .
-mypy influence_model.py journal_handlers.py edsm_client.py overlay_client.py discord_report.py
+mypy bgsinf
 pytest
 ```
 

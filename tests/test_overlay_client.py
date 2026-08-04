@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
-import overlay_client
-from overlay_client import OverlayClient
+import bgsinf.overlay as overlay_client
+from bgsinf.overlay import OverlayClient
 
 
 def test_unavailable_when_no_backend(monkeypatch: Any) -> None:

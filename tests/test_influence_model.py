@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from influence_model import (
+from bgsinf.influence_model import (
     Action,
     TrackerState,
     bounty_points,

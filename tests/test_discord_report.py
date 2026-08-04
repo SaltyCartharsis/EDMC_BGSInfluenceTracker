@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from discord_report import ESC, format_credits, format_discord_report
-from influence_model import TrackerState
-from journal_handlers import SessionState
+from bgsinf.discord_report import ESC, format_credits, format_discord_report
+from bgsinf.influence_model import TrackerState
+from bgsinf.journal_handlers import SessionState
 
 
 def test_format_credits() -> None:
