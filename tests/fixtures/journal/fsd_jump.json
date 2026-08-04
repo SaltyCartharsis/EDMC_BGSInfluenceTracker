@@ -1,0 +1,23 @@
+{
+  "timestamp": "2024-06-01T12:00:00Z",
+  "event": "FSDJump",
+  "StarSystem": "Sol",
+  "SystemAddress": 10477373803,
+  "Population": 22780871705,
+  "Factions": [
+    {
+      "Name": "Mother Gaia",
+      "FactionState": "None",
+      "Government": "Democracy",
+      "Influence": 0.312,
+      "Allegiance": "Federation"
+    },
+    {
+      "Name": "Sol Workers' Party",
+      "FactionState": "None",
+      "Government": "Communism",
+      "Influence": 0.188,
+      "Allegiance": "Independent"
+    }
+  ]
+}

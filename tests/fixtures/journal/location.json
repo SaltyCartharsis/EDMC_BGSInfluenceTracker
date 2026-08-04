@@ -1,0 +1,30 @@
+{
+  "timestamp": "2024-06-01T11:00:00Z",
+  "event": "Location",
+  "Docked": true,
+  "StarSystem": "Sol",
+  "SystemAddress": 10477373803,
+  "StarPos": [0.0, 0.0, 0.0],
+  "Population": 22780871705,
+  "Body": "Abraham Lincoln",
+  "BodyID": 5,
+  "BodyType": "Station",
+  "StationName": "Abraham Lincoln",
+  "StationType": "Orbis",
+  "Factions": [
+    {
+      "Name": "Mother Gaia",
+      "FactionState": "None",
+      "Government": "Democracy",
+      "Influence": 0.312,
+      "Allegiance": "Federation"
+    },
+    {
+      "Name": "Sol Workers' Party",
+      "FactionState": "None",
+      "Government": "Communism",
+      "Influence": 0.188,
+      "Allegiance": "Independent"
+    }
+  ]
+}

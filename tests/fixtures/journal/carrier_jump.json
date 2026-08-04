@@ -1,0 +1,14 @@
+{
+  "timestamp": "2024-06-01T14:00:00Z",
+  "event": "CarrierJump",
+  "Docked": true,
+  "StationName": "FC L14X1J",
+  "StationType": "FleetCarrier",
+  "StarSystem": "Hermitage",
+  "SystemAddress": 5363877956440,
+  "Population": 0,
+  "Body": "Hermitage",
+  "BodyID": 0,
+  "BodyType": "Star",
+  "Factions": []
+}

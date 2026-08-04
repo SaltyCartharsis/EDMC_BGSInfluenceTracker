@@ -1,0 +1,16 @@
+{
+  "timestamp": "2024-06-01T13:00:00Z",
+  "event": "RedeemVoucher",
+  "Type": "bounty",
+  "Factions": [
+    {
+      "Faction": "Mother Gaia",
+      "Amount": 125000
+    },
+    {
+      "Faction": "Other Faction",
+      "Amount": 5000
+    }
+  ],
+  "Amount": 130000
+}

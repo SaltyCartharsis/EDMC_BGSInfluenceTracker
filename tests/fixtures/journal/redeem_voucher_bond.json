@@ -1,0 +1,7 @@
+{
+  "timestamp": "2024-06-01T15:00:00Z",
+  "event": "RedeemVoucher",
+  "Type": "CombatBond",
+  "Faction": "Mother Gaia",
+  "Amount": 99999
+}

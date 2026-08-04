@@ -1,5 +1,17 @@
-
 # Grok Build
 .grok/computer/
 .grok/generated-media/
 *.grok-session*
+
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/

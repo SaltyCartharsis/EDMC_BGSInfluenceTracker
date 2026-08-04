@@ -1,0 +1,21 @@
+{
+  "timestamp": "2024-06-01T12:30:00Z",
+  "event": "MissionCompleted",
+  "Faction": "Mother Gaia",
+  "Name": "Mission_Courier_name",
+  "MissionID": 123456789,
+  "FactionEffects": [
+    {
+      "Faction": "Mother Gaia",
+      "Influence": [
+        {
+          "SystemAddress": 10477373803,
+          "Trend": "UpGood",
+          "Influence": "++"
+        }
+      ],
+      "ReputationTrend": "UpGood",
+      "Reputation": "+"
+    }
+  ]
+}

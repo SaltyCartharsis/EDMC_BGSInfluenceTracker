@@ -1,0 +1,13 @@
+{
+  "timestamp": "2024-06-01T12:10:00Z",
+  "event": "Bounty",
+  "Rewards": [
+    {
+      "Faction": "Mother Gaia",
+      "Reward": 50000
+    }
+  ],
+  "Target": "empire_eagle",
+  "TotalReward": 50000,
+  "VictimFaction": "Sol Workers' Party"
+}

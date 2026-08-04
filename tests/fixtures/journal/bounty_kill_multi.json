@@ -1,0 +1,17 @@
+{
+  "timestamp": "2024-06-01T12:15:00Z",
+  "event": "Bounty",
+  "Rewards": [
+    {
+      "Faction": "Mother Gaia",
+      "Reward": 10000
+    },
+    {
+      "Faction": "Other Faction",
+      "Reward": 8000
+    }
+  ],
+  "Target": "viper",
+  "TotalReward": 18000,
+  "VictimFaction": "Pirate Faction"
+}
