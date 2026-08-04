@@ -1,0 +1,128 @@
+# Build a runtime-only EDMC plugin zip and publish a GitHub Release.
+#
+# Trigger:
+#   - Push a version tag:  git tag v1.0.1 && git push origin v1.0.1
+#   - Or run manually via Actions → Release plugin → Run workflow
+#
+# The zip contains only files needed to run under EDMC (no tests/tooling):
+#   EDMC_BGSInfluenceTracker/
+#     load.py
+#     influence_model.py
+#     journal_handlers.py
+#     edsm_client.py
+#     overlay_client.py
+#     discord_report.py
+#
+# Install: unzip into EDMC's plugins directory, restart EDMC.
+
+name: Release plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without leading v (e.g. 1.0.1). Defaults to __version__ in load.py."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+            VERSION="${VERSION#v}"
+            TAG="v${VERSION}"
+          else
+            VERSION="$(python3 -c "import re, pathlib; t=pathlib.Path('load.py').read_text(); print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', t).group(1))")"
+            TAG="v${VERSION}"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved version=${VERSION} tag=${TAG}"
+
+      - name: Package runtime plugin zip
+        id: pack
+        run: |
+          set -euo pipefail
+          PLUGIN_NAME="EDMC_BGSInfluenceTracker"
+          VERSION="${{ steps.ver.outputs.version }}"
+          STAGE="dist/${PLUGIN_NAME}"
+          ZIP_NAME="${PLUGIN_NAME}-${VERSION}.zip"
+
+          # Runtime modules only (EDMC loads load.py from the plugin folder).
+          RUNTIME_FILES=(
+            load.py
+            influence_model.py
+            journal_handlers.py
+            edsm_client.py
+            overlay_client.py
+            discord_report.py
+          )
+
+          mkdir -p "${STAGE}"
+          for f in "${RUNTIME_FILES[@]}"; do
+            if [[ ! -f "${f}" ]]; then
+              echo "::error::Missing required runtime file: ${f}"
+              exit 1
+            fi
+            cp "${f}" "${STAGE}/"
+          done
+
+          # Sanity: entrypoint present
+          test -f "${STAGE}/load.py"
+
+          mkdir -p dist
+          (cd dist && zip -r "../${ZIP_NAME}" "${PLUGIN_NAME}")
+          ls -la "${ZIP_NAME}"
+          unzip -l "${ZIP_NAME}"
+
+          echo "zip=${ZIP_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "plugin_name=${PLUGIN_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
+          generate_release_notes: true
+          files: ${{ steps.pack.outputs.zip }}
+          fail_on_unmatched_files: true
+          body: |
+            ## EDMC BGS Influence Tracker ${{ steps.ver.outputs.tag }}
+
+            Runtime-only plugin package for [EDMarketConnector](https://github.com/EDCD/EDMarketConnector).
+
+            ### Install
+            1. Download **`${{ steps.pack.outputs.zip }}`**
+            2. Unzip so you get a folder named `EDMC_BGSInfluenceTracker`
+            3. Move that folder into your EDMC plugins directory:
+               - **Windows:** `%LOCALAPPDATA%\EDMarketConnector\plugins`
+               - **macOS:** `~/Library/Application Support/EDMarketConnector/plugins`
+               - **Linux:** `~/.local/share/EDMarketConnector/plugins` (or `$XDG_DATA_HOME/EDMarketConnector/plugins`)
+            4. Restart EDMC
+
+            ### Included (runtime only)
+            `load.py`, `influence_model.py`, `journal_handlers.py`, `edsm_client.py`, `overlay_client.py`, `discord_report.py`
+
+            Development files (tests, tooling, docs) are **not** included.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -22,6 +22,18 @@ The journal does **not** put base voucher value and Powerplay cash bonus on the 
 - [Frontier Journal Manual v32 (PDF)](https://hosting.zaonce.net/community/journal/v32/Journal_Manual-v32.pdf)
 - [EDMC Plugin Development (PLUGINS.md)](https://github.com/EDCD/EDMarketConnector/blob/main/PLUGINS.md)
 
+## Install (release zip)
+
+1. Download the latest **release zip** from [Releases](https://github.com/SaltyCartharsis/EDMC_BGSInfluenceTracker/releases)
+2. Unzip so you have a folder named `EDMC_BGSInfluenceTracker`
+3. Place that folder in the EDMC plugins directory:
+   - **Windows:** `%LOCALAPPDATA%\EDMarketConnector\plugins`
+   - **macOS:** `~/Library/Application Support/EDMarketConnector/plugins`
+   - **Linux:** `~/.local/share/EDMarketConnector/plugins`
+4. Restart EDMC
+
+Release artifacts contain **runtime files only** (no tests or dev tooling).
+
 ## Development
 
 ```bash
@@ -34,5 +46,16 @@ black --check .
 mypy influence_model.py journal_handlers.py edsm_client.py overlay_client.py discord_report.py
 pytest
 ```
+
+### Publishing a release
+
+```bash
+# 1. Bump __version__ in load.py if needed
+# 2. Commit on main, then:
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+That runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which zips only the EDMC runtime modules and attaches them to a GitHub Release. You can also run the workflow manually from the Actions tab.
 
 See `AGENTS.md` for testing strategy and project conventions.
