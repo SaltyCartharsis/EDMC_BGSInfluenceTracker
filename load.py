@@ -48,7 +48,7 @@ from bgsinf.overlay import OverlayClient
 
 plugin_name = os.path.basename(os.path.dirname(__file__))
 logger = logging.getLogger(f"{appname}.{plugin_name}")
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 VERSION = __version__
 
 # Pref keys (unique prefix)

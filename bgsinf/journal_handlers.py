@@ -236,6 +236,14 @@ def _handle_redeem_voucher(
                     )
                 result.notifications.append(msg)
                 result.ui_dirty = True
+            elif cash > 0 and fac == tracker.faction:
+                # Pending face value missing — cash often includes PP bonus
+                result.notifications.append(
+                    f"Bounty redeem {cash:,.0f} cr cash ignored for BVs "
+                    f"(no kill-time face value pending; hunt with tracker on "
+                    f"to capture base)"
+                )
+                result.ui_dirty = True
         return
 
     if vtype in ("combatbond", "combatbonds"):

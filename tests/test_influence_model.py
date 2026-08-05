@@ -352,7 +352,7 @@ def test_reset_session_clears_actions_keeps_context() -> None:
 @pytest.mark.parametrize(
     ("pending", "cash", "base", "bonus", "remaining"),
     [
-        (0, 1000, 1000, 0, 0),  # no tracking → cash as base
+        (0, 1000, 0, 1000, 0),  # no kill-time base → never treat cash as base
         (50_000, 100_000, 50_000, 50_000, 0),  # ALD-style 100% cash bonus
         (80_000, 50_000, 50_000, 0, 30_000),  # partial redeem, no surplus
         (50_000, 50_000, 50_000, 0, 0),  # exact full redeem
@@ -374,16 +374,35 @@ def test_note_bounty_award_and_redeem_with_perk() -> None:
     assert t.pending_bounty_base == 50_000
     act = t.redeem_bounty_cash("ts", "Sol", "Federation", 100_000)
     assert act is not None
-    assert act.raw_value == 50_000
+    assert act.raw_value == 50_000  # base face value, not PP cash
     assert act.cash_value == 100_000
     assert act.bonus_value == 50_000
+    assert t.total_bounty_base == 50_000
+    assert t.total_bounty_cash == 100_000
     assert t.pending_bounty_base == 0.0
+
+
+def test_redeem_without_pending_base_does_not_use_cash_as_base() -> None:
+    """Powerplay cash must not become BVs when kill-time face value was not stacked."""
+    t = _tracker()
+    act = t.redeem_bounty_cash("ts", "Sol", "Federation", 100_000)
+    assert act is None
+    assert t.total_bounty_base == 0.0
+    assert t.total_bounty_cash == 0.0
+    assert t.bucket_counts["bounty"] == 0
 
 
 def test_note_bounty_award_wrong_system_ignored() -> None:
     t = _tracker()
     assert t.note_bounty_award("Other", "Federation", 50_000) == 0
     assert t.pending_bounty_base == 0
+
+
+def test_note_bounty_award_empty_system_still_stacks() -> None:
+    """Location briefly unknown must not drop face-value vouchers."""
+    t = _tracker()
+    assert t.note_bounty_award("", "Federation", 12_000) == 12_000
+    assert t.pending_bounty_base == 12_000
 
 
 def test_reset_session_allows_fresh_decay() -> None:

@@ -162,21 +162,32 @@ def test_mission_negative_influence_ignored() -> None:
 def test_redeem_voucher_modern_factions_array() -> None:
     tracker = _tracker(faction="Mother Gaia", population=1_000_000)
     session = SessionState()
+    # Stack kill-time face value first (base), then redeem with same cash (no perk)
+    tracker.note_bounty_award("Sol", "Mother Gaia", 125_000)
     result = process_journal_entry(tracker, session, _load("redeem_voucher.json"))
 
     assert len(result.actions) == 1
     assert result.actions[0].kind == "bounty"
-    # No pending kills → cash treated as base (cannot detect perk)
-    assert result.actions[0].raw_value == 125000
-    assert result.actions[0].cash_value == 125000
+    assert result.actions[0].raw_value == 125_000  # base, not PP cash
+    assert result.actions[0].cash_value == 125_000
     assert result.actions[0].bonus_value == 0
     assert tracker.bucket_counts["bounty"] == 1
     assert "125,000" in result.notifications[0]
 
 
+def test_redeem_voucher_without_pending_does_not_count_cash_as_base() -> None:
+    tracker = _tracker(faction="Mother Gaia", population=1_000_000)
+    session = SessionState()
+    result = process_journal_entry(tracker, session, _load("redeem_voucher.json"))
+    assert result.actions == []
+    assert tracker.total_bounty_base == 0
+    assert any("ignored for BVs" in n for n in result.notifications)
+
+
 def test_redeem_voucher_ignores_other_factions_in_array() -> None:
     tracker = _tracker(faction="Mother Gaia")
     session = SessionState()
+    tracker.note_bounty_award("Sol", "Mother Gaia", 125_000)
     process_journal_entry(tracker, session, _load("redeem_voucher.json"))
     # Only Mother Gaia row, not "Other Faction"
     assert tracker.bucket_counts["bounty"] == 1
@@ -185,6 +196,7 @@ def test_redeem_voucher_ignores_other_factions_in_array() -> None:
 def test_redeem_voucher_legacy_single_faction() -> None:
     tracker = _tracker(faction="Mother Gaia", population=500_000)
     session = SessionState()
+    tracker.note_bounty_award("Sol", "Mother Gaia", 50_000)
     result = process_journal_entry(tracker, session, _load("redeem_voucher_legacy.json"))
     assert len(result.actions) == 1
     assert result.actions[0].raw_value == 50000
@@ -193,6 +205,7 @@ def test_redeem_voucher_legacy_single_faction() -> None:
 def test_redeem_voucher_type_case_insensitive() -> None:
     tracker = _tracker(faction="Mother Gaia")
     session = SessionState()
+    tracker.note_bounty_award("Sol", "Mother Gaia", 1000)
     entry = {
         "timestamp": "t",
         "event": "RedeemVoucher",
@@ -435,6 +448,7 @@ def test_malformed_nested_entries_are_skipped() -> None:
     )
     assert len(result.actions) == 1
 
+    tracker.note_bounty_award("Sol", "Mother Gaia", 100)
     result = process_journal_entry(
         tracker,
         session,
@@ -446,3 +460,4 @@ def test_malformed_nested_entries_are_skipped() -> None:
         },
     )
     assert len(result.actions) == 1
+    assert result.actions[0].raw_value == 100
