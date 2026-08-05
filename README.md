@@ -37,34 +37,58 @@ Taipandot-style testing). Treat the result as a **rough guide**, not an exact fo
 
 | Action | When counted | Input used for estimation |
 |--------|----------------|---------------------------|
-| Mission completions | `MissionCompleted` with positive `FactionEffects` INF for the tracked faction | Influence string length (`+` … `+++++`, clamped 1–5) |
-| Bounty voucher hand-ins | `RedeemVoucher` type bounty for the tracked faction | **Base** (face-value) credits only — see below |
-| Exploration data sales | Tracked for Discord/session totals | **Not** folded into Est. Δ yet |
+| Mission completions | `MissionCompleted` with positive `FactionEffects` INF for the tracked faction | Influence tier 1–5 from `+`…`+++++` |
+| Bounty voucher hand-ins | `RedeemVoucher` type bounty | **Base** face-value credits only |
+| Combat bonds | `RedeemVoucher` type CombatBond | Bond credit amount |
+| Trade profit | `MarketSell` at a station controlled by the tracked faction | `TotalSale − Count×AvgPricePaid` (profit &gt; 0) |
+| Exploration data sales | Cartographics sales | Reported only — **not** in Est. Δ yet |
 
-Only the configured **system of interest** + **minor faction** are scored. Wrong system/faction events are ignored.
+Only the configured **system of interest** + **minor faction** are scored.
 
 ### Pipeline (per scored action)
 
 1. **Effort points** from the journal payload  
-   - Missions: `0.5 × log2(n)` where `n` is the number of `+` characters (1–5)  
-   - Bounties: `1.33 × log2(base_credits)` (base credits floored at 1 for the log)
+   - Missions: `0.5 × log2(tier)` (tier 1–5)  
+   - Bounties: `1.33 × log2(base_credits)`  
+   - Combat bonds: `1.15 × log2(credits)`  
+   - Trade profit: `1.1 × log2(profit)`
 
-2. **Diminishing returns** within the session (separate counters for missions vs bounties)  
-   - Missions: divide by `1 + 0.15 × log(1 + mission_count)`  
-   - Bounties: divide by `1 + 0.12 × log(1 + bounty_count)`  
-   So the second and third hand-ins of the same type earn less than the first.
+2. **Diminishing returns** within the session (per activity type)  
+   - Missions / bounties / bonds / trade each have their own counter and mild log decay
 
 3. **Population factor** (larger systems move influence more slowly)  
-   - Population is floored at 1 000  
+   - Population floored at 1 000  
    - `factor = max(0.025, 1 − log10(pop) / 10.875)`
 
-4. **Empirical scale → estimated % points**  
-   - Mission: `points × population_factor × 0.35`  
-   - Bounty: `points × population_factor × 0.28`  
+4. **Competition / other-CMDR proxy** (heuristic only)  
+   - We cannot see other players’ actions  
+   - System proxy: more minor factions + higher population → softer base  
+   - **Settings — same-faction allies (`A`)** and **opposing players (`O`)**  
+     (counts of other active CMDRs; you are not included):  
+     player-side multiplier `= (1 + A) / (1 + O)`  
+     Assumes similar effort per CMDR. Allies raise faction-side Est. Δ; opponents lower it.  
+   - Combined: `competition = clamp(system_part × player_share, 0.15 … 4.0)`  
+   - Changing A/O recomputes Est. Δ for the whole session  
+   - Optional: uncheck *Include estimated influence Δ* to omit Est from Discord reports
 
-5. **Session total**  
-   - `Est. Δ` is the sum of each action’s estimated % contribution for the session  
-   - Shown on the main window and in Discord reports; reset with **Reset session totals**
+5. **Empirical scale → estimated % points** (after pop × competition)  
+   - Mission: `× 0.35`  
+   - Bounty: `× 0.12` (intentionally lower than missions — BVs were over-valued)  
+   - Combat bond: `× 0.14`  
+   - Trade profit: `× 0.16`
+
+6. **Session total**  
+   - `Est. Δ` sums each action’s estimated % for the session  
+
+### Mission INF reporting (BGS-Tally style)
+
+Discord/UI report mission influence as total units and per-tier counts, not “N missions”:
+
+```text
+INF +7 (1×2 2×1 3×1)
+```
+
+Total `+7` = Σ(tier × count). Arabic tiers 1–5 match `+` … `+++++`.
 
 ### Bounty base vs Powerplay cash
 

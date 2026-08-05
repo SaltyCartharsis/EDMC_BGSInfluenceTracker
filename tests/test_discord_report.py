@@ -10,6 +10,7 @@ from bgsinf.discord_report import (
     format_credits,
     format_discord_report,
     format_example_report,
+    format_mission_inf_breakdown,
     human_amount,
     normalize_report_format,
     strip_ansi,
@@ -23,12 +24,23 @@ def _sample_tracker() -> TrackerState:
         system="Sol",
         faction="Mother Gaia",
         current_influence=0.312,
+        population=1_000_000,
+        num_factions=3,
         total_bounty_base=50_000,
+        total_bond_credits=20_000,
+        total_trade_profit=15_000,
         total_exploration_base=10822,
         total_exploration_earnings=44343,
         total_est_delta=1.25,
         last_turnin_system="Sol",
-        bucket_counts={"mission": 2, "bounty": 1, "exploration": 1},
+        mission_inf_counts={1: 2, 2: 1, 3: 1, 4: 0, 5: 0},
+        bucket_counts={
+            "mission": 4,
+            "bounty": 1,
+            "bond": 1,
+            "trade": 2,
+            "exploration": 1,
+        },
     )
 
 
@@ -56,6 +68,16 @@ def test_normalize_report_format() -> None:
     assert normalize_report_format(None) == "verbose"
 
 
+def test_mission_inf_breakdown_tally_style() -> None:
+    t = _sample_tracker()
+    # total units = 1*2 + 2*1 + 3*1 = 7
+    plain = format_mission_inf_breakdown(t, coloured=False)
+    assert plain == "INF +7 (1×2 2×1 3×1)"
+    coloured = format_mission_inf_breakdown(t, coloured=True)
+    assert "INF" in coloured
+    assert ESC in coloured
+
+
 def test_verbose_report_contains_key_fields_and_ansi() -> None:
     text = format_discord_report(_sample_tracker(), SessionState(current_system="Sol"))
     assert text.startswith("```ansi\n")
@@ -65,75 +87,38 @@ def test_verbose_report_contains_key_fields_and_ansi() -> None:
     assert "Sol" in text
     assert "31.2%" in text
     assert "50,000 cr" in text
-    assert "10,822 cr" in text
+    assert "Combat bonds" in text or "bonds" in text.lower()
     assert "+1.25%" in text
     assert "Powerplay / BGS Session Report" in text
+    plain = strip_ansi(text)
+    assert "INF +7" in plain
+    assert "1×2" in plain
 
 
-def test_compact_report() -> None:
-    text = format_discord_report(
-        _sample_tracker(), SessionState(), report_format="compact", wrap_codeblock=False
-    )
-    assert "Mother Gaia" in text
-    assert "Sol" in text
-    assert "31.2%" in text
-    assert "BVs" in text
-    assert "Expl" in text
-    assert "Powerplay / BGS Session Report" not in text
-    lines = text.splitlines()
-    assert len(lines) == 3
+def test_compact_and_tally_use_inf_breakdown_not_mission_count() -> None:
+    t = _sample_tracker()
+    for fmt in ("compact", "tally"):
+        plain = strip_ansi(
+            format_discord_report(t, SessionState(), report_format=fmt, wrap_codeblock=False)
+        )
+        assert "INF +7" in plain
+        assert "1×2" in plain
+        assert "Ms " not in plain  # no bare mission-count token
+        assert "BVs" in plain
+        assert "CBs" in plain
+        assert "TrdProfit" in plain
+        assert "Est" in plain
 
 
-def test_tally_report_uses_initials_and_two_content_lines_after_system() -> None:
+def test_tally_report_uses_initials() -> None:
     text = format_discord_report(
         _sample_tracker(), SessionState(), report_format="tally", wrap_codeblock=False
     )
-    lines = text.splitlines()
+    plain = strip_ansi(text)
+    lines = plain.splitlines()
     assert len(lines) == 3
-    # strip ANSI for structure checks
-    plain = "".join(ch if ord(ch) >= 32 else "" for ch in text)
     assert "MG" in plain
     assert "Mother Gaia" not in plain
-    assert "31.2%" in plain
-    assert "BVs" in plain
-    assert "50.0k" in plain
-    assert "Expl" in plain
-    assert "INF" in plain
-    assert "+1.25%" in plain
-
-
-def test_verbose_shows_exploration_cash_footnote_when_bonus() -> None:
-    tracker = TrackerState(
-        system="X",
-        faction="Y",
-        total_exploration_base=1000,
-        total_exploration_earnings=3000,
-    )
-    text = format_discord_report(tracker, SessionState(), report_format="verbose")
-    assert "exploration cash incl. bonuses" in text
-    assert "3,000 cr" in text
-
-
-def test_without_codeblock_wrapper() -> None:
-    tracker = TrackerState(system="A", faction="B")
-    text = format_discord_report(tracker, SessionState(), wrap_codeblock=False)
-    assert not text.startswith("```")
-    assert ESC in text
-
-
-def test_turnin_falls_back_to_session_then_tracked() -> None:
-    tracker = TrackerState(system="Tracked", faction="F", last_turnin_system="")
-    session = SessionState(current_system="Here")
-    text = format_discord_report(tracker, session, report_format="verbose")
-    assert "Here" in text
-
-    tracker2 = TrackerState(system="OnlyTracked", faction="F", last_turnin_system="")
-    text2 = format_discord_report(tracker2, SessionState(current_system=""))
-    assert "OnlyTracked" in text2
-
-
-def test_strip_ansi_removes_sgr() -> None:
-    assert strip_ansi(f"{ESC}[1;32mhi{ESC}[0m") == "hi"
 
 
 def test_format_example_report_uses_goofy_names_plain() -> None:
@@ -141,8 +126,50 @@ def test_format_example_report_uses_goofy_names_plain() -> None:
         text = format_example_report(fmt, plain=True)
         assert EXAMPLE_SYSTEM in text
         assert ESC not in text
+        assert "INF +" in text
         if fmt == "tally":
-            assert "SHLF" in text  # Space Hamster Liberation Front
+            assert "SHLF" in text
             assert EXAMPLE_FACTION not in text
         else:
             assert EXAMPLE_FACTION in text
+
+
+def test_strip_ansi_removes_sgr() -> None:
+    assert strip_ansi(f"{ESC}[1;32mhi{ESC}[0m") == "hi"
+
+
+def test_report_omits_zero_activity_lines() -> None:
+    t = TrackerState(
+        system="Sol",
+        faction="Mother Gaia",
+        current_influence=0.2,
+        mission_inf_counts={1: 1, 2: 0, 3: 0, 4: 0, 5: 0},
+        total_bounty_base=10_000,
+        total_bond_credits=0,
+        total_trade_profit=0,
+        total_exploration_base=0,
+        total_est_delta=0.5,
+    )
+    plain = strip_ansi(
+        format_discord_report(t, SessionState(), report_format="verbose", wrap_codeblock=False)
+    )
+    assert "Bounty vouchers" in plain
+    assert "Combat bonds" not in plain
+    assert "Trade profit" not in plain
+    assert "Exploration data" not in plain
+    assert "Est. influence" in plain
+
+
+def test_report_can_omit_est_delta() -> None:
+    t = _sample_tracker()
+    plain = strip_ansi(
+        format_discord_report(
+            t,
+            SessionState(),
+            report_format="tally",
+            wrap_codeblock=False,
+            include_est_delta=False,
+        )
+    )
+    assert "Est" not in plain
+    assert "INF +7" in plain

@@ -100,8 +100,10 @@ def test_mission_completed_tracked_faction() -> None:
     assert result.ui_dirty is True
     assert len(result.actions) == 1
     assert result.actions[0].kind == "mission"
-    assert result.actions[0].raw_value == len("++")
+    assert result.actions[0].raw_value == 2  # "++" → INF tier 2
     assert tracker.bucket_counts["mission"] == 1
+    assert tracker.mission_inf_counts[2] == 1
+    assert tracker.mission_inf_total_units() == 2
     assert tracker.total_est_delta > 0
     assert any(n.startswith("Mission ++") for n in result.notifications)
 
@@ -201,12 +203,15 @@ def test_redeem_voucher_type_case_insensitive() -> None:
     assert len(result.actions) == 1
 
 
-def test_combat_bond_not_counted_as_bounty() -> None:
+def test_combat_bond_is_counted_as_bond_not_bounty() -> None:
     tracker = _tracker(faction="Mother Gaia")
     session = SessionState()
     result = process_journal_entry(tracker, session, _load("redeem_voucher_bond.json"))
-    assert result.actions == []
-    assert result.ui_dirty is False
+    assert len(result.actions) == 1
+    assert result.actions[0].kind == "bond"
+    assert tracker.bucket_counts["bounty"] == 0
+    assert tracker.bucket_counts["bond"] == 1
+    assert tracker.total_bond_credits == 99999
 
 
 def test_bounty_wrong_faction_ignored() -> None:
@@ -296,6 +301,89 @@ def test_multi_sell_exploration_data() -> None:
     result = process_journal_entry(tracker, session, _load("multi_sell_exploration_data.json"))
     assert result.actions[0].raw_value == 2_938_186
     assert tracker.last_turnin_system == "Cartographics Hub"
+
+
+def test_combat_bond_redeem() -> None:
+    tracker = _tracker(system="Sol", faction="Mother Gaia", population=1_000_000)
+    session = SessionState(current_system="Sol")
+    result = process_journal_entry(
+        tracker,
+        session,
+        {
+            "timestamp": "t",
+            "event": "RedeemVoucher",
+            "Type": "CombatBond",
+            "Faction": "Mother Gaia",
+            "Amount": 40_000,
+        },
+    )
+    assert len(result.actions) == 1
+    assert result.actions[0].kind == "bond"
+    assert tracker.total_bond_credits == 40_000
+    assert tracker.total_est_delta > 0
+
+
+def test_market_sell_trade_profit_for_station_faction() -> None:
+    tracker = _tracker(system="Sol", faction="Mother Gaia", population=1_000_000)
+    session = SessionState(current_system="Sol", station_faction="Mother Gaia")
+    result = process_journal_entry(
+        tracker,
+        session,
+        {
+            "timestamp": "t",
+            "event": "MarketSell",
+            "Type": "gold",
+            "Count": 10,
+            "SellPrice": 1000,
+            "TotalSale": 10_000,
+            "AvgPricePaid": 400,
+        },
+    )
+    assert len(result.actions) == 1
+    assert result.actions[0].kind == "trade"
+    assert result.actions[0].raw_value == 6000
+    assert tracker.total_trade_profit == 6000
+
+
+def test_market_sell_wrong_station_faction_ignored() -> None:
+    tracker = _tracker(system="Sol", faction="Mother Gaia")
+    session = SessionState(current_system="Sol", station_faction="Other")
+    result = process_journal_entry(
+        tracker,
+        session,
+        {
+            "timestamp": "t",
+            "event": "MarketSell",
+            "Count": 1,
+            "TotalSale": 1000,
+            "AvgPricePaid": 0,
+        },
+    )
+    assert result.actions == []
+
+
+def test_docked_sets_station_faction() -> None:
+    tracker = _tracker()
+    session = SessionState()
+    process_journal_entry(
+        tracker,
+        session,
+        {
+            "timestamp": "t",
+            "event": "Docked",
+            "StarSystem": "Sol",
+            "StationFaction": {"Name": "Mother Gaia"},
+        },
+    )
+    assert session.station_faction == "Mother Gaia"
+    assert session.current_system == "Sol"
+
+
+def test_system_event_sets_num_factions() -> None:
+    tracker = _tracker(system="", faction="Mother Gaia")
+    session = SessionState()
+    process_journal_entry(tracker, session, _load("fsd_jump.json"))
+    assert tracker.num_factions == 2
 
 
 # ---------------------------------------------------------------------------

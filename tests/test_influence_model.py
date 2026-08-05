@@ -7,12 +7,20 @@ import math
 import pytest
 
 from bgsinf.influence_model import (
+    SCALE_BOND,
+    SCALE_BOUNTY,
+    SCALE_MISSION,
+    SCALE_TRADE,
     Action,
     TrackerState,
+    bond_points,
     bounty_points,
+    competition_factor,
+    mission_inf_level,
     mission_points,
     population_factor,
     resolve_redeem_base_and_bonus,
+    trade_points,
 )
 
 # ---------------------------------------------------------------------------
@@ -135,10 +143,12 @@ def test_add_mission_records_action_and_totals() -> None:
     assert act.kind == "mission"
     assert act.faction == "Federation"
     assert act.system == "Sol"
-    assert act.raw_value == len("++")
+    assert act.raw_value == 2  # INF tier for "++"
     assert act.points > 0
     assert act.est_delta > 0
     assert t.bucket_counts["mission"] == 1
+    assert t.mission_inf_counts[2] == 1
+    assert t.mission_inf_total_units() == 2
     assert t.total_points == pytest.approx(act.points)
     assert t.total_est_delta == pytest.approx(act.est_delta)
     assert len(t.actions) == 1
@@ -194,10 +204,9 @@ def test_mission_est_delta_uses_population_and_scale() -> None:
     t = _tracker(population=1_000_000)
     act = t.add_mission("ts", "Sol", "Federation", "+")
     assert act is not None
-    # After decay for first mission (count=1): decay = 1/(1+0.15*log1p(1))
     decay = 1.0 / (1.0 + 0.15 * math.log1p(1))
     pts = mission_points("+") * decay
-    expected_delta = pts * population_factor(1_000_000) * 0.35
+    expected_delta = pts * population_factor(1_000_000) * t.competition() * SCALE_MISSION
     assert act.points == pytest.approx(pts)
     assert act.est_delta == pytest.approx(expected_delta)
 
@@ -208,9 +217,88 @@ def test_bounty_est_delta_uses_population_and_scale() -> None:
     assert act is not None
     decay = 1.0 / (1.0 + 0.12 * math.log1p(1))
     pts = bounty_points(10_000) * decay
-    expected_delta = pts * population_factor(500_000) * 0.28
+    expected_delta = pts * population_factor(500_000) * t.competition() * SCALE_BOUNTY
     assert act.points == pytest.approx(pts)
     assert act.est_delta == pytest.approx(expected_delta)
+
+
+def test_competition_factor_dilutes_with_factions_and_pop() -> None:
+    solo = competition_factor(1, 1000, 0)
+    crowded = competition_factor(8, 50_000_000, 0)
+    assert solo == pytest.approx(1.0)
+    assert crowded < solo
+    assert crowded >= 0.15
+
+
+def test_opposing_players_halves_then_thirds_share() -> None:
+    base = competition_factor(1, 1000, 0, 0)
+    one = competition_factor(1, 1000, 1, 0)
+    two = competition_factor(1, 1000, 2, 0)
+    assert one == pytest.approx(base / 2)
+    assert two == pytest.approx(base / 3)
+
+
+def test_allies_boost_share_opponents_dilute() -> None:
+    solo = competition_factor(1, 1000, 0, 0)
+    one_ally = competition_factor(1, 1000, 0, 1)  # (1+1)/(1+0) = 2
+    one_each = competition_factor(1, 1000, 1, 1)  # (1+1)/(1+1) = 1
+    assert one_ally == pytest.approx(solo * 2)
+    assert one_each == pytest.approx(solo)
+
+
+def test_set_player_estimates_recomputes_est_delta() -> None:
+    t = _tracker(population=1_000_000)
+    t.add_mission("t", "Sol", "Federation", "+++")
+    solo_est = t.total_est_delta
+    t.set_opposing_players(1)
+    assert t.total_est_delta == pytest.approx(solo_est / 2)
+    t.set_ally_players(1)  # (1+1)/(1+1) = 1 × solo system share
+    assert t.total_est_delta == pytest.approx(solo_est)
+    t.set_player_estimates(allies=1, opponents=0)
+    assert t.total_est_delta == pytest.approx(solo_est * 2)
+    t.set_player_estimates(allies=0, opponents=0)
+    assert t.total_est_delta == pytest.approx(solo_est)
+
+
+def test_more_factions_reduces_mission_est_delta() -> None:
+    a = _tracker(population=1_000_000)
+    a.num_factions = 1
+    b = _tracker(population=1_000_000)
+    b.num_factions = 7
+    act_a = a.add_mission("t", "Sol", "Federation", "+++")
+    act_b = b.add_mission("t", "Sol", "Federation", "+++")
+    assert act_a is not None and act_b is not None
+    assert act_b.est_delta < act_a.est_delta
+
+
+def test_combat_bond_and_trade_profit() -> None:
+    t = _tracker(population=1_000_000)
+    bond = t.add_combat_bond("t", "Sol", "Federation", 25_000)
+    trade = t.add_trade_profit("t", "Sol", "Federation", 12_000)
+    assert bond is not None and trade is not None
+    assert t.total_bond_credits == 25_000
+    assert t.total_trade_profit == 12_000
+    assert bond.est_delta > 0 and trade.est_delta > 0
+    decay_b = 1.0 / (1.0 + 0.12 * math.log1p(1))
+    expected_bond = (
+        bond_points(25_000) * decay_b * population_factor(1_000_000) * t.competition() * SCALE_BOND
+    )
+    assert bond.est_delta == pytest.approx(expected_bond)
+    decay_t = 1.0 / (1.0 + 0.10 * math.log1p(1))
+    expected_trade = (
+        trade_points(12_000)
+        * decay_t
+        * population_factor(1_000_000)
+        * t.competition()
+        * SCALE_TRADE
+    )
+    assert trade.est_delta == pytest.approx(expected_trade)
+
+
+def test_mission_inf_level() -> None:
+    assert mission_inf_level("+") == 1
+    assert mission_inf_level("+++++") == 5
+    assert mission_inf_level("++++++") == 5
 
 
 # ---------------------------------------------------------------------------
@@ -231,13 +319,22 @@ def test_reset_session_clears_actions_keeps_context() -> None:
     t.reset_session()
 
     assert t.actions == []
-    assert t.bucket_counts == {"mission": 0, "bounty": 0, "exploration": 0}
+    assert t.bucket_counts == {
+        "mission": 0,
+        "bounty": 0,
+        "bond": 0,
+        "trade": 0,
+        "exploration": 0,
+    }
+    assert t.mission_inf_total_units() == 0
     assert t.total_points == 0.0
     assert t.total_est_delta == 0.0
     assert t.pending_bounty_base == 0.0
     assert t.total_bounty_base == 0.0
     assert t.total_bounty_cash == 0.0
     assert t.total_bounty_bonus == 0.0
+    assert t.total_bond_credits == 0.0
+    assert t.total_trade_profit == 0.0
     assert t.total_exploration_base == 0.0
     assert t.last_turnin_system == ""
     # context preserved

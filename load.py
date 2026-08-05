@@ -37,6 +37,7 @@ from bgsinf.discord_report import (
     REPORT_FORMATS,
     format_discord_report,
     format_example_report,
+    format_mission_inf_breakdown,
     normalize_report_format,
 )
 from bgsinf.edsm_client import apply_edsm_system_data
@@ -47,13 +48,16 @@ from bgsinf.overlay import OverlayClient
 
 plugin_name = os.path.basename(os.path.dirname(__file__))
 logger = logging.getLogger(f"{appname}.{plugin_name}")
-__version__ = "1.1.2"
+__version__ = "1.2.2"
 VERSION = __version__
 
 # Pref keys (unique prefix)
 _CFG_SYSTEM = f"{plugin_name}.system"
 _CFG_FACTION = f"{plugin_name}.faction"
 _CFG_DISCORD_FORMAT = f"{plugin_name}.discord_format"
+_CFG_OPPOSING_PLAYERS = f"{plugin_name}.opposing_players"
+_CFG_ALLY_PLAYERS = f"{plugin_name}.ally_players"
+_CFG_INCLUDE_EST = f"{plugin_name}.include_est_delta"
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -62,12 +66,16 @@ tracker = TrackerState()
 session = SessionState()
 overlay = OverlayClient()
 discord_format: str = "verbose"
+include_est_delta: bool = True
 
 status_label: Optional[tk.Label] = None
 detail_label: Optional[tk.Label] = None
 faction_var: Optional[tk.StringVar] = None
 system_var: Optional[tk.StringVar] = None
 discord_format_var: Optional[tk.StringVar] = None
+opposing_players_var: Optional[tk.StringVar] = None
+ally_players_var: Optional[tk.StringVar] = None
+include_est_var: Optional[tk.BooleanVar] = None
 faction_combo: Optional[tk.Widget] = None
 prefs_frame: Optional[nb.Frame] = None
 app_frame: Optional[tk.Frame] = None
@@ -83,8 +91,8 @@ def open_inara(system: str) -> None:
 
 
 def _load_prefs() -> None:
-    """Restore tracker + report format from EDMC config."""
-    global discord_format
+    """Restore tracker + report options from EDMC config."""
+    global discord_format, include_est_delta
     try:
         sys_pref = (config.get_str(_CFG_SYSTEM) or "").strip()
         fac_pref = (config.get_str(_CFG_FACTION) or "").strip()
@@ -94,6 +102,23 @@ def _load_prefs() -> None:
         if fac_pref:
             tracker.faction = fac_pref
         discord_format = fmt_pref
+        try:
+            opp = int(config.get_int(_CFG_OPPOSING_PLAYERS) or 0)
+        except Exception:
+            opp = 0
+        try:
+            allies = int(config.get_int(_CFG_ALLY_PLAYERS) or 0)
+        except Exception:
+            allies = 0
+        tracker.set_player_estimates(allies=max(0, allies), opponents=max(0, opp))
+        try:
+            include_est_delta = bool(config.get_bool(_CFG_INCLUDE_EST))
+        except Exception:
+            # Older EDMC / missing key
+            raw = config.get_str(_CFG_INCLUDE_EST)
+            include_est_delta = True if raw in (None, "", "1", "True", "true") else bool(raw)
+            if raw in ("0", "False", "false"):
+                include_est_delta = False
     except Exception as e:
         logger.debug("Could not restore prefs: %s", e)
 
@@ -134,6 +159,7 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> nb.Frame:
     Lets the commander pick tracked system/faction and Discord report format.
     """
     global prefs_frame, faction_var, system_var, discord_format_var, faction_combo
+    global opposing_players_var, ally_players_var, include_est_var
     frame = nb.Frame(parent)
     prefs_frame = frame
     row = 0
@@ -174,6 +200,48 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> nb.Frame:
         frame,
         text="Tip: jump into the system (or Refresh from EDSM) to populate the faction list.",
     ).grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=(0, 6))
+    row += 1
+
+    # ---- Estimation options ----
+    nb.Label(frame, text="Influence estimate").grid(
+        row=row, column=0, columnspan=2, sticky="w", padx=5, pady=(8, 2)
+    )
+    row += 1
+
+    nb.Label(frame, text="Est. same-faction allies active").grid(
+        row=row, column=0, sticky="w", padx=5, pady=2
+    )
+    ally_players_var = tk.StringVar(value=str(max(0, tracker.ally_players)))
+    nb.EntryMenu(frame, textvariable=ally_players_var, width=8).grid(
+        row=row, column=1, sticky="w", padx=5
+    )
+    row += 1
+
+    nb.Label(frame, text="Est. opposing faction players active").grid(
+        row=row, column=0, sticky="w", padx=5, pady=2
+    )
+    opposing_players_var = tk.StringVar(value=str(max(0, tracker.opposing_players)))
+    nb.EntryMenu(frame, textvariable=opposing_players_var, width=8).grid(
+        row=row, column=1, sticky="w", padx=5
+    )
+    row += 1
+    nb.Label(
+        frame,
+        text=(
+            "Player-side multiplier ≈ (1 + allies) / (1 + opponents), "
+            "assuming similar effort per CMDR (you are the leading 1). "
+            "Allies boost faction-side Est. Δ; opponents dilute it. "
+            "Combined with system contest (faction count / population)."
+        ),
+    ).grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=(0, 4))
+    row += 1
+
+    include_est_var = tk.BooleanVar(value=include_est_delta)
+    nb.Checkbutton(
+        frame,
+        text="Include estimated influence Δ (Est) in Discord reports",
+        variable=include_est_var,
+    ).grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=2)
     row += 1
 
     # ---- Discord report format ----
@@ -251,7 +319,7 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> nb.Frame:
 
 
 def prefs_changed(cmdr: str, is_beta: bool) -> None:
-    global discord_format
+    global discord_format, include_est_delta
     if system_var:
         sys_val = system_var.get().strip()
         config.set(_CFG_SYSTEM, sys_val)
@@ -263,6 +331,28 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:
     if discord_format_var:
         discord_format = normalize_report_format(discord_format_var.get())
         config.set(_CFG_DISCORD_FORMAT, discord_format)
+    allies = tracker.ally_players
+    opponents = tracker.opposing_players
+    if ally_players_var is not None:
+        try:
+            allies = max(0, int(str(ally_players_var.get()).strip() or "0"))
+        except ValueError:
+            allies = 0
+        config.set(_CFG_ALLY_PLAYERS, allies)
+    if opposing_players_var is not None:
+        try:
+            opponents = max(0, int(str(opposing_players_var.get()).strip() or "0"))
+        except ValueError:
+            opponents = 0
+        config.set(_CFG_OPPOSING_PLAYERS, opponents)
+    if ally_players_var is not None or opposing_players_var is not None:
+        tracker.set_player_estimates(allies=allies, opponents=opponents)
+    if include_est_var is not None:
+        include_est_delta = bool(include_est_var.get())
+        try:
+            config.set(_CFG_INCLUDE_EST, include_est_delta)
+        except Exception:
+            config.set(_CFG_INCLUDE_EST, "1" if include_est_delta else "0")
     _update_ui()
 
 
@@ -303,41 +393,52 @@ def _update_ui() -> None:
     if not status_label:
         return
     pop_m = tracker.population / 1e6 if tracker.population else 0
-    txt = (
-        f"{tracker.faction or '?'} @ {tracker.system or '?'}  "
-        f"Inf {tracker.current_influence * 100:.1f}%  "
-        f"Est Δ {tracker.total_est_delta:+.2f}%  "
-        f"(pop {pop_m:.2f}M)"
-    )
+    show_est = include_est_delta
+    if include_est_var is not None:
+        show_est = bool(include_est_var.get())
+    if show_est:
+        txt = (
+            f"{tracker.faction or '?'} @ {tracker.system or '?'}  "
+            f"Inf {tracker.current_influence * 100:.1f}%  "
+            f"Est Δ {tracker.total_est_delta:+.2f}%  "
+            f"(pop {pop_m:.2f}M)"
+        )
+    else:
+        txt = (
+            f"{tracker.faction or '?'} @ {tracker.system or '?'}  "
+            f"Inf {tracker.current_influence * 100:.1f}%  "
+            f"(pop {pop_m:.2f}M)"
+        )
     status_label["text"] = txt
     if detail_label:
-        bounty_extra = ""
-        if tracker.total_bounty_base or tracker.total_bounty_bonus:
-            bounty_extra = (
-                f"  base {tracker.total_bounty_base / 1e3:.0f}k"
-                f" +perk {tracker.total_bounty_bonus / 1e3:.0f}k"
-            )
-            if tracker.pending_bounty_base:
-                bounty_extra += f"  pend {tracker.pending_bounty_base / 1e3:.0f}k"
-        explor = tracker.bucket_counts.get("exploration", 0)
-        explor_extra = ""
+        inf_plain = format_mission_inf_breakdown(tracker, coloured=False)
+        parts = [inf_plain] if inf_plain else []
+        if tracker.total_bounty_base:
+            parts.append(f"BVs {tracker.total_bounty_base / 1e3:.0f}k")
+        if tracker.total_bond_credits:
+            parts.append(f"CBs {tracker.total_bond_credits / 1e3:.0f}k")
+        if tracker.total_trade_profit:
+            parts.append(f"Trd {tracker.total_trade_profit / 1e3:.0f}k")
         if tracker.total_exploration_base:
-            explor_extra = f"  exp {tracker.total_exploration_base / 1e3:.0f}k"
-        detail_label["text"] = (
-            f"Missions: {tracker.bucket_counts['mission']}  "
-            f"Bounties: {tracker.bucket_counts['bounty']}  "
-            f"Expl: {explor}  "
-            f"Σ points {tracker.total_points:.1f}"
-            f"{bounty_extra}{explor_extra}"
-            f"  [{normalize_report_format(discord_format)}]"
-        )
+            parts.append(f"Expl {tracker.total_exploration_base / 1e3:.0f}k")
+        if show_est and abs(tracker.total_est_delta) > 1e-9:
+            parts.append(f"Est {tracker.total_est_delta:+.2f}%")
+        if tracker.ally_players > 0:
+            parts.append(f"ally×{tracker.ally_players}")
+        if tracker.opposing_players > 0:
+            parts.append(f"opp×{tracker.opposing_players}")
+        parts.append(f"[{normalize_report_format(discord_format)}]")
+        detail_label["text"] = "  ".join(p for p in parts if p)
 
     if overlay.available and tracker.faction:
+        inf_plain = format_mission_inf_breakdown(tracker, coloured=False)
+        line2_bits = [b for b in (inf_plain,) if b]
+        if show_est and abs(tracker.total_est_delta) > 1e-9:
+            line2_bits.append(f"Est {tracker.total_est_delta:+.2f}%")
+        line2 = "  ".join(line2_bits) if line2_bits else "—"
         overlay.send(
             "bgsinf",
-            f"BGS {tracker.faction[:18]}\n"
-            f"Δ {tracker.total_est_delta:+.2f}%  "
-            f"({tracker.bucket_counts['mission']}M/{tracker.bucket_counts['bounty']}B)",
+            f"BGS {tracker.faction[:18]}\n{line2}",
             color="#00ff88",
             ttl=12,
             x=30,
@@ -424,11 +525,25 @@ def _export_csv() -> None:
 
 def _copy_discord_report() -> None:
     """Copy an ANSI Discord code block for the current session to the clipboard."""
-    # Prefer live settings radio if prefs open; else saved global
+    # Prefer live settings if prefs open; else saved globals
     fmt = discord_format
     if discord_format_var is not None:
         fmt = normalize_report_format(discord_format_var.get())
-    text = format_discord_report(tracker, session, report_format=fmt)
+    # Apply live ally/opponent boxes before generating report
+    live_allies = tracker.ally_players
+    live_opp = tracker.opposing_players
+    if ally_players_var is not None:
+        with suppress(ValueError):
+            live_allies = max(0, int(str(ally_players_var.get()).strip() or "0"))
+    if opposing_players_var is not None:
+        with suppress(ValueError):
+            live_opp = max(0, int(str(opposing_players_var.get()).strip() or "0"))
+    if ally_players_var is not None or opposing_players_var is not None:
+        tracker.set_player_estimates(allies=live_allies, opponents=live_opp)
+    show_est = include_est_delta
+    if include_est_var is not None:
+        show_est = bool(include_est_var.get())
+    text = format_discord_report(tracker, session, report_format=fmt, include_est_delta=show_est)
     widget = prefs_frame or app_frame
     try:
         if widget is not None:
