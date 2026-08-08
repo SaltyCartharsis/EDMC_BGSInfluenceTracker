@@ -48,7 +48,7 @@ from bgsinf.overlay import OverlayClient
 
 plugin_name = os.path.basename(os.path.dirname(__file__))
 logger = logging.getLogger(f"{appname}.{plugin_name}")
-__version__ = "1.2.3"
+__version__ = "1.2.4"
 VERSION = __version__
 
 # Pref keys (unique prefix)
@@ -58,6 +58,7 @@ _CFG_DISCORD_FORMAT = f"{plugin_name}.discord_format"
 _CFG_OPPOSING_PLAYERS = f"{plugin_name}.opposing_players"
 _CFG_ALLY_PLAYERS = f"{plugin_name}.ally_players"
 _CFG_INCLUDE_EST = f"{plugin_name}.include_est_delta"
+_CFG_PP_BOUNTY_PCT = f"{plugin_name}.pp_bounty_bonus_pct"
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -76,6 +77,7 @@ discord_format_var: Optional[tk.StringVar] = None
 opposing_players_var: Optional[tk.StringVar] = None
 ally_players_var: Optional[tk.StringVar] = None
 include_est_var: Optional[tk.BooleanVar] = None
+pp_bounty_pct_var: Optional[tk.StringVar] = None
 faction_combo: Optional[tk.Widget] = None
 prefs_frame: Optional[nb.Frame] = None
 app_frame: Optional[tk.Frame] = None
@@ -119,6 +121,14 @@ def _load_prefs() -> None:
             include_est_delta = True if raw in (None, "", "1", "True", "true") else bool(raw)
             if raw in ("0", "False", "false"):
                 include_est_delta = False
+        try:
+            pp_pct = float(config.get_str(_CFG_PP_BOUNTY_PCT) or "0")
+        except Exception:
+            try:
+                pp_pct = float(config.get_int(_CFG_PP_BOUNTY_PCT) or 0)
+            except Exception:
+                pp_pct = 0.0
+        tracker.bounty_pp_bonus_pct = max(0.0, min(500.0, pp_pct))
     except Exception as e:
         logger.debug("Could not restore prefs: %s", e)
 
@@ -159,7 +169,7 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> nb.Frame:
     Lets the commander pick tracked system/faction and Discord report format.
     """
     global prefs_frame, faction_var, system_var, discord_format_var, faction_combo
-    global opposing_players_var, ally_players_var, include_est_var
+    global opposing_players_var, ally_players_var, include_est_var, pp_bounty_pct_var
     frame = nb.Frame(parent)
     prefs_frame = frame
     row = 0
@@ -242,6 +252,24 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> nb.Frame:
         text="Include estimated influence Δ (Est) in Discord reports",
         variable=include_est_var,
     ).grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+    row += 1
+
+    nb.Label(frame, text="Powerplay bounty cash bonus %").grid(
+        row=row, column=0, sticky="w", padx=5, pady=2
+    )
+    pp_bounty_pct_var = tk.StringVar(value=str(int(tracker.bounty_pp_bonus_pct)))
+    nb.EntryMenu(frame, textvariable=pp_bounty_pct_var, width=8).grid(
+        row=row, column=1, sticky="w", padx=5
+    )
+    row += 1
+    nb.Label(
+        frame,
+        text=(
+            "Used when redeem cash has no kill-time face value pending "
+            "(e.g. stockpiled vouchers). 100 = ALD-style double cash → base = cash/2. "
+            "0 = treat cash as base. Also auto-learns from kills+redeems in-session."
+        ),
+    ).grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=(0, 4))
     row += 1
 
     # ---- Discord report format ----
@@ -353,6 +381,14 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:
             config.set(_CFG_INCLUDE_EST, include_est_delta)
         except Exception:
             config.set(_CFG_INCLUDE_EST, "1" if include_est_delta else "0")
+    if pp_bounty_pct_var is not None:
+        try:
+            pp_pct = float(str(pp_bounty_pct_var.get()).strip() or "0")
+        except ValueError:
+            pp_pct = 0.0
+        pp_pct = max(0.0, min(500.0, pp_pct))
+        tracker.bounty_pp_bonus_pct = pp_pct
+        config.set(_CFG_PP_BOUNTY_PCT, str(int(pp_pct)) if pp_pct == int(pp_pct) else str(pp_pct))
     _update_ui()
 
 

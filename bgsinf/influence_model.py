@@ -105,31 +105,36 @@ def scale_for_kind(kind: str) -> float:
     }.get(kind, 0.0)
 
 
-def resolve_redeem_base_and_bonus(pending_base: float, cash: float) -> tuple[float, float, float]:
+def resolve_redeem_base_and_bonus(
+    pending_base: float,
+    cash: float,
+    *,
+    pp_bonus_pct: float = 0.0,
+    learned_cash_factor: float = 1.0,
+) -> tuple[float, float, float]:
     """
     Split RedeemVoucher cash into base face value and implied payout bonus.
 
     Returns ``(base, bonus, remaining_pending)``.
 
-    **Base only comes from kill-time ``Bounty`` face value stacked in**
-    ``pending_base``. We never treat redeem cash alone as base — that cash
-    often includes Powerplay rank payout perks (e.g. ALD), which must not
-    inflate BVs or Est. Δ.
+    Priority for **base** (must always yield a base when cash > 0 so redeems count):
+    1. Kill-time face value stacked in ``pending_base`` (best).
+    2. Else reverse Powerplay cash: ``cash / cash_factor`` where
+       ``cash_factor`` is ``max(learned_cash_factor, 1 + pp_bonus_pct/100)``.
+    3. Else treat cash as base (no perk assumed).
 
-    - ``pending <= 0``: base unknown → ``(0, cash, 0)`` (caller should not
-      score BGS base from cash).
-    - ``cash > pending``: full cash-in of known stack with extra payout →
-      base=pending, bonus=cash−pending, pending=0.
-    - ``cash <= pending``: treat cash as face value (no detectable perk) →
-      base=cash, pending reduced by cash.
+    With pending:
+    - ``cash > pending``: full stack with perk → base=pending, bonus=cash−pending
+    - ``cash <= pending``: cash as face value of partial redeem
     """
     if cash <= 0:
         return 0.0, 0.0, max(pending_base, 0.0)
     pending = max(pending_base, 0.0)
     if pending <= 0:
-        # Do NOT return cash as base — that reintroduces PP perk inflation.
-        return 0.0, cash, 0.0
-    # Small float tolerance so cash slightly above pending still counts as perk
+        factor = max(float(learned_cash_factor), 1.0 + max(float(pp_bonus_pct), 0.0) / 100.0, 1.0)
+        base = cash / factor if factor > 1.0 else cash
+        bonus = max(0.0, cash - base)
+        return base, bonus, 0.0
     if cash > pending + 0.5:
         return pending, cash - pending, 0.0
     return cash, 0.0, max(0.0, pending - cash)
@@ -176,6 +181,10 @@ class TrackerState:
     total_est_delta: float = 0.0
     # Face-value vouchers earned (Bounty events) not yet attributed to a redeem.
     pending_bounty_base: float = 0.0
+    # Powerplay cash / face ratio. Learned when pending+cash observed; or from settings.
+    # 1.0 = no perk; 2.0 = 100% PP bounty cash bonus.
+    bounty_pp_bonus_pct: float = 0.0  # user setting (0–500)
+    learned_bounty_cash_factor: float = 1.0  # updated on redeem when pending known
     # Session aggregates
     total_bounty_base: float = 0.0
     total_bounty_cash: float = 0.0
@@ -240,16 +249,13 @@ class TrackerState:
         """
         Record kill-time voucher **face value** for the tracked faction.
 
-        Stacks into ``pending_bounty_base`` for later redeem split. Faction must
-        match; system is soft — empty kill/session system still counts so we
-        do not lose face value when location is briefly unknown.
+        Stacks into ``pending_bounty_base`` for later redeem split. Only faction
+        must match (not system) so hunting anywhere still captures face value
+        for stockpile → redeem base separation.
         """
         if base_credits <= 0:
             return 0.0
-        if (faction or "").strip() != (self.faction or "").strip():
-            return 0.0
-        # Soft system filter: only skip when both sides are set and differ
-        if self.system and system and system.strip() != self.system.strip():
+        if (faction or "").strip().casefold() != (self.faction or "").strip().casefold():
             return 0.0
         self.pending_bounty_base += base_credits
         return base_credits
@@ -278,8 +284,11 @@ class TrackerState:
         base_credits: float,
         cash_credits: float | None = None,
     ) -> Action | None:
-        """Record a bounty hand-in. Influence uses ``base_credits`` only."""
-        if system != self.system or faction != self.faction:
+        """Record a bounty hand-in. Influence / BVs report use ``base_credits`` only."""
+        if (faction or "").strip().casefold() != (self.faction or "").strip().casefold():
+            return None
+        # System of interest: allow empty tracker.system (auto) or exact match
+        if self.system and system and system.strip() != self.system.strip():
             return None
         if base_credits <= 0:
             return None
@@ -290,11 +299,12 @@ class TrackerState:
         decay = 1.0 / (1.0 + 0.12 * math.log1p(self.bucket_counts["bounty"]))
         pts *= decay
         delta = pts * population_factor(self.population) * self.competition() * SCALE_BOUNTY
+        sys_name = system or self.system
         act = Action(
             ts,
             "bounty",
             faction,
-            system,
+            sys_name,
             base_credits,
             pts,
             delta,
@@ -319,21 +329,32 @@ class TrackerState:
         turnin_system: str = "",
     ) -> Action | None:
         """
-        Hand-in path: split cash vs pending **face value**, then ``add_bounty``.
+        Hand-in path: always count the redeem; BVs/Est use **base** only.
 
-        Requires kill-time base in ``pending_bounty_base``. Cash alone (often
-        including Powerplay perks) is never used as BGS base.
+        Base priority: kill-time pending face value → reverse PP factor
+        (learned or settings %) → cash as last resort.
         """
-        if system != self.system or (faction or "").strip() != (self.faction or "").strip():
+        if (faction or "").strip().casefold() != (self.faction or "").strip().casefold():
             return None
-        base, _bonus, remaining = resolve_redeem_base_and_bonus(
-            self.pending_bounty_base, cash_credits
+        if cash_credits <= 0:
+            return None
+        pending_before = self.pending_bounty_base
+        base, bonus, remaining = resolve_redeem_base_and_bonus(
+            self.pending_bounty_base,
+            cash_credits,
+            pp_bonus_pct=self.bounty_pp_bonus_pct,
+            learned_cash_factor=self.learned_bounty_cash_factor,
         )
         self.pending_bounty_base = remaining
+        # Learn cash/face ratio when we had a full pending stack with surplus cash
+        if pending_before > 0 and cash_credits > pending_before + 0.5:
+            factor = cash_credits / pending_before
+            if factor > 1.01:
+                self.learned_bounty_cash_factor = max(self.learned_bounty_cash_factor, factor)
         if base <= 0:
-            # No face-value stack — refuse to score PP cash as base BVs
             return None
-        act = self.add_bounty(ts, system, faction, base, cash_credits=cash_credits)
+        sys_name = system or self.system or turnin_system
+        act = self.add_bounty(ts, sys_name, faction, base, cash_credits=cash_credits)
         if act and turnin_system:
             self.last_turnin_system = turnin_system
         return act
@@ -443,6 +464,7 @@ class TrackerState:
         self.total_points = 0.0
         self.total_est_delta = 0.0
         self.pending_bounty_base = 0.0
+        # Keep learned_bounty_cash_factor and bounty_pp_bonus_pct across session reset
         self.total_bounty_base = 0.0
         self.total_bounty_cash = 0.0
         self.total_bounty_bonus = 0.0

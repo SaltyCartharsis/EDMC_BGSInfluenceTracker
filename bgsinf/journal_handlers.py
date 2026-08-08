@@ -219,30 +219,20 @@ def _handle_redeem_voucher(
             cash = float(item.get("Amount") or 0)
             if fac != tracker.faction or cash <= 0:
                 continue
+            # Always attempt redeem; base is pending face value and/or PP reverse
             act = tracker.redeem_bounty_cash(
-                ts, tracker.system, str(fac), cash, turnin_system=turnin
+                ts, tracker.system or turnin, str(fac), cash, turnin_system=turnin
             )
             if act:
                 result.actions.append(act)
-                if act.bonus_value > 0:
+                if act.bonus_value > 0.5:
                     msg = (
                         f"Bounty base {act.raw_value:,.0f} + perk {act.bonus_value:,.0f} "
-                        f"= {act.cash_value:,.0f} cr → est {act.est_delta:+.2f}% (base)"
+                        f"= {act.cash_value:,.0f} cr → est {act.est_delta:+.2f}%"
                     )
                 else:
-                    msg = (
-                        f"Bounty base {act.raw_value:,.0f} cr "
-                        f"→ est {act.est_delta:+.2f}% (base)"
-                    )
+                    msg = f"Bounty base {act.raw_value:,.0f} cr " f"→ est {act.est_delta:+.2f}%"
                 result.notifications.append(msg)
-                result.ui_dirty = True
-            elif cash > 0 and fac == tracker.faction:
-                # Pending face value missing — cash often includes PP bonus
-                result.notifications.append(
-                    f"Bounty redeem {cash:,.0f} cr cash ignored for BVs "
-                    f"(no kill-time face value pending; hunt with tracker on "
-                    f"to capture base)"
-                )
                 result.ui_dirty = True
         return
 

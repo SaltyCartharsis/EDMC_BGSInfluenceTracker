@@ -175,13 +175,37 @@ def test_redeem_voucher_modern_factions_array() -> None:
     assert "125,000" in result.notifications[0]
 
 
-def test_redeem_voucher_without_pending_does_not_count_cash_as_base() -> None:
+def test_redeem_voucher_without_pending_still_counts() -> None:
+    """Stockpiled redeem must always count (base=cash when no PP reverse)."""
     tracker = _tracker(faction="Mother Gaia", population=1_000_000)
     session = SessionState()
     result = process_journal_entry(tracker, session, _load("redeem_voucher.json"))
-    assert result.actions == []
-    assert tracker.total_bounty_base == 0
-    assert any("ignored for BVs" in n for n in result.notifications)
+    assert len(result.actions) == 1
+    assert result.actions[0].kind == "bounty"
+    assert result.actions[0].raw_value == 125_000
+    assert tracker.total_bounty_base == 125_000
+
+
+def test_redeem_voucher_real_world_order_of_mobius_style() -> None:
+    """Journal sample: RedeemVoucher with Amount only (no kills in session)."""
+    tracker = _tracker(system="CD-28 14473", faction="The Order of Mobius", population=1_000_000)
+    tracker.bounty_pp_bonus_pct = 100.0  # ALD-style double cash
+    session = SessionState(current_system="CD-28 14473")
+    result = process_journal_entry(
+        tracker,
+        session,
+        {
+            "timestamp": "2026-08-08T01:13:37Z",
+            "event": "RedeemVoucher",
+            "Type": "bounty",
+            "Amount": 2_204_237,
+            "Factions": [{"Faction": "The Order of Mobius", "Amount": 2_204_237}],
+        },
+    )
+    assert len(result.actions) == 1
+    assert result.actions[0].raw_value == pytest.approx(1_102_118.5)
+    assert result.actions[0].cash_value == pytest.approx(2_204_237)
+    assert tracker.total_bounty_base == pytest.approx(1_102_118.5)
 
 
 def test_redeem_voucher_ignores_other_factions_in_array() -> None:
@@ -262,11 +286,12 @@ def test_bounty_skimmer_form() -> None:
     assert tracker.pending_bounty_base == 1000
 
 
-def test_bounty_kill_wrong_system_ignored() -> None:
+def test_bounty_kill_any_system_stacks_for_tracked_faction() -> None:
+    """Face value stacks regardless of kill system (stockpile → redeem base)."""
     tracker = _tracker(system="Sol", faction="Mother Gaia")
     session = SessionState(current_system="Other")
     process_journal_entry(tracker, session, _load("bounty_kill.json"))
-    assert tracker.pending_bounty_base == 0
+    assert tracker.pending_bounty_base == 50_000
 
 
 def test_redeem_with_powerplay_perk_splits_base_and_bonus() -> None:

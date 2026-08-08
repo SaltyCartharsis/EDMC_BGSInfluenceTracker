@@ -352,7 +352,7 @@ def test_reset_session_clears_actions_keeps_context() -> None:
 @pytest.mark.parametrize(
     ("pending", "cash", "base", "bonus", "remaining"),
     [
-        (0, 1000, 0, 1000, 0),  # no kill-time base → never treat cash as base
+        (0, 1000, 1000, 0, 0),  # no pending, no PP setting → cash as base
         (50_000, 100_000, 50_000, 50_000, 0),  # ALD-style 100% cash bonus
         (80_000, 50_000, 50_000, 0, 30_000),  # partial redeem, no surplus
         (50_000, 50_000, 50_000, 0, 0),  # exact full redeem
@@ -366,6 +366,14 @@ def test_resolve_redeem_base_and_bonus(
     assert b == pytest.approx(base)
     assert bo == pytest.approx(bonus)
     assert rem == pytest.approx(remaining)
+
+
+def test_resolve_without_pending_reverses_pp_bonus_pct() -> None:
+    # 100% PP → cash is 2× base
+    b, bo, rem = resolve_redeem_base_and_bonus(0, 100_000, pp_bonus_pct=100)
+    assert b == pytest.approx(50_000)
+    assert bo == pytest.approx(50_000)
+    assert rem == 0
 
 
 def test_note_bounty_award_and_redeem_with_perk() -> None:
@@ -382,20 +390,41 @@ def test_note_bounty_award_and_redeem_with_perk() -> None:
     assert t.pending_bounty_base == 0.0
 
 
-def test_redeem_without_pending_base_does_not_use_cash_as_base() -> None:
-    """Powerplay cash must not become BVs when kill-time face value was not stacked."""
+def test_redeem_without_pending_still_counts_using_pp_setting() -> None:
+    """Stockpiled vouchers must still count; PP % reverses cash → base."""
+    t = _tracker()
+    t.bounty_pp_bonus_pct = 100.0
+    act = t.redeem_bounty_cash("ts", "Sol", "Federation", 100_000)
+    assert act is not None
+    assert act.raw_value == pytest.approx(50_000)
+    assert act.cash_value == pytest.approx(100_000)
+    assert act.bonus_value == pytest.approx(50_000)
+    assert t.total_bounty_base == pytest.approx(50_000)
+
+
+def test_redeem_without_pending_or_pp_uses_cash_as_base() -> None:
     t = _tracker()
     act = t.redeem_bounty_cash("ts", "Sol", "Federation", 100_000)
-    assert act is None
-    assert t.total_bounty_base == 0.0
-    assert t.total_bounty_cash == 0.0
-    assert t.bucket_counts["bounty"] == 0
+    assert act is not None
+    assert act.raw_value == pytest.approx(100_000)
+    assert t.total_bounty_base == pytest.approx(100_000)
 
 
-def test_note_bounty_award_wrong_system_ignored() -> None:
+def test_learn_pp_factor_from_pending_redeem() -> None:
     t = _tracker()
-    assert t.note_bounty_award("Other", "Federation", 50_000) == 0
-    assert t.pending_bounty_base == 0
+    t.note_bounty_award("Sol", "Federation", 50_000)
+    t.redeem_bounty_cash("ts", "Sol", "Federation", 100_000)
+    assert t.learned_bounty_cash_factor == pytest.approx(2.0)
+    # Next redeem without pending uses learned factor
+    act = t.redeem_bounty_cash("ts", "Sol", "Federation", 80_000)
+    assert act is not None
+    assert act.raw_value == pytest.approx(40_000)
+
+
+def test_note_bounty_award_any_system_stacks_for_faction() -> None:
+    t = _tracker()
+    assert t.note_bounty_award("Other", "Federation", 50_000) == 50_000
+    assert t.pending_bounty_base == 50_000
 
 
 def test_note_bounty_award_empty_system_still_stacks() -> None:
